@@ -63,6 +63,23 @@ button{font:inherit;cursor:pointer}
 .horaBadge{grid-column:1/-1;font-size:.75rem;color:var(--ac);font-weight:600}
 .horaEmpty{color:var(--mu);font-size:.85rem;margin:0}
 @media(max-width:640px){.horaRow{grid-template-columns:1fr 1fr;}.horaRow .del{grid-column:2;justify-self:end}}
+/* Selector de hora sencillo (igual en Android, iOS y PC) */
+.tbtn{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fbfcfe;color:var(--tx);text-align:left;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.tbtn.vacio{color:var(--mu)}
+.tbtn.abierto{border-color:var(--ac);box-shadow:0 0 0 3px rgba(20,184,166,.25)}
+.tbtn::after{content:"🕒";font-size:.9rem;opacity:.7}
+.tpick{grid-column:1/-1;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px}
+.tpick[hidden]{display:none}
+.tpick h4{margin:0 0 6px;font-size:.75rem;color:var(--mu);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.tpick h4:not(:first-child){margin-top:12px}
+.tgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.tgrid button,.tamp button{padding:10px 0;border:1px solid var(--line);background:#fff;border-radius:9px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.tgrid button.on,.tamp button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.tamp{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.tfoot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px}
+.tfoot b{font-size:1.1rem;color:var(--ink);font-variant-numeric:tabular-nums}
+.tfoot .solid{width:auto;margin:0;padding:10px 22px}
+@media(max-width:400px){.tgrid{grid-template-columns:repeat(4,1fr)}}
 /* Panel de resultados */
 .panel{background:var(--ink);color:#e7eefc;border-radius:18px;padding:24px}
 .empty h2{color:#fff}.empty p{color:#a9b8d3}
@@ -304,13 +321,70 @@ function addHoraRow(vals) {
   const div = document.createElement('div'); div.className = 'horaRow'; div.dataset.id = id;
   div.innerHTML = `
     <div><label>Fecha</label><input type="date" class="hf" value="${vals && vals.f || ''}"></div>
-    <div><label>Hora inicio</label><input type="time" class="hi" value="${vals && vals.i || ''}"></div>
-    <div><label>Hora fin</label><input type="time" class="he" value="${vals && vals.e || ''}"></div>
+    <div><label>Hora inicio</label><input type="hidden" class="hi" value="${vals && vals.i || ''}"><button type="button" class="tbtn" data-for="hi"></button></div>
+    <div><label>Hora fin</label><input type="hidden" class="he" value="${vals && vals.e || ''}"><button type="button" class="tbtn" data-for="he"></button></div>
     <button type="button" class="del" aria-label="Eliminar">×</button>
+    <div class="tpick" hidden></div>
     <p class="horaBadge"></p>`;
   div.querySelector('.del').onclick = () => { div.remove(); pintarVacio(); };
+  div.querySelectorAll('.tbtn').forEach(b => { pintarBoton(b); b.onclick = () => abrirReloj(div, b); });
+  actualizarBadge(div);
   $('horasList').appendChild(div);
   pintarVacio();
+}
+// ---- Selector de hora propio: toca la hora, los minutos y AM/PM (sin el reloj del sistema) ----
+const fmt12 = v => { if (!v) return ''; let [h, m] = v.split(':').map(Number); const ap = h < 12 ? 'AM' : 'PM'; h = h % 12 || 12; return `${h}:${String(m).padStart(2, '0')} ${ap}`; };
+function pintarBoton(b) {
+  const v = b.previousElementSibling.value;
+  b.textContent = v ? fmt12(v) : 'Elegir hora'; b.classList.toggle('vacio', !v);
+}
+function actualizarBadge(row) {
+  const i = row.querySelector('.hi').value, e = row.querySelector('.he').value, badge = row.querySelector('.horaBadge');
+  if (!i || !e) { badge.textContent = ''; return; }
+  let ini = minutos(i), fin = minutos(e); if (fin <= ini) fin += 1440;
+  const c = clasificarHoras(ini, fin), p = [];
+  if (c.diurnas) p.push(`${round2(c.diurnas)} h diurnas`);
+  if (c.nocturnas) p.push(`${round2(c.nocturnas)} h nocturnas`);
+  badge.textContent = p.join(' · ');
+}
+function abrirReloj(row, btn) {
+  const panel = row.querySelector('.tpick'), input = btn.previousElementSibling;
+  if (!panel.hidden && panel.dataset.for === btn.dataset.for) { cerrarReloj(row); return; }
+  document.querySelectorAll('.horaRow').forEach(r => { if (r !== row) cerrarReloj(r); });
+  row.querySelectorAll('.tbtn').forEach(b => b.classList.toggle('abierto', b === btn));
+  panel.dataset.for = btn.dataset.for;
+  let h = 8, m = 0, ap = 'AM';
+  if (input.value) { const [H, M] = input.value.split(':').map(Number); ap = H < 12 ? 'AM' : 'PM'; h = H % 12 || 12; m = M; }
+  else if (btn.dataset.for === 'he') { h = 5; ap = 'PM'; }
+  const titulo = btn.dataset.for === 'hi' ? 'Hora de inicio' : 'Hora de fin';
+  const pintar = () => {
+    panel.innerHTML = `
+      <h4>${titulo} · Hora</h4>
+      <div class="tgrid">${[1,2,3,4,5,6,7,8,9,10,11,12].map(x => `<button type="button" data-h="${x}" class="${x === h ? 'on' : ''}">${x}</button>`).join('')}</div>
+      <h4>Minutos</h4>
+      <div class="tgrid">${[0,5,10,15,20,25,30,35,40,45,50,55].map(x => `<button type="button" data-m="${x}" class="${x === m ? 'on' : ''}">:${String(x).padStart(2, '0')}</button>`).join('')}</div>
+      <h4>Mañana / tarde</h4>
+      <div class="tamp"><button type="button" data-ap="AM" class="${ap === 'AM' ? 'on' : ''}">AM (mañana)</button><button type="button" data-ap="PM" class="${ap === 'PM' ? 'on' : ''}">PM (tarde/noche)</button></div>
+      <div class="tfoot"><b>${h}:${String(m).padStart(2, '0')} ${ap}</b><button type="button" class="solid" data-ok>Listo</button></div>`;
+  };
+  panel.onclick = ev => {
+    const t = ev.target.closest('button'); if (!t) return;
+    if (t.dataset.h) h = +t.dataset.h;
+    else if (t.dataset.m) m = +t.dataset.m;
+    else if (t.dataset.ap) ap = t.dataset.ap;
+    else if ('ok' in t.dataset) { cerrarReloj(row); btn.focus(); return; }
+    guardar(); pintar();
+  };
+  const guardar = () => {
+    const H = (h % 12) + (ap === 'PM' ? 12 : 0);
+    input.value = `${String(H).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    pintarBoton(btn); actualizarBadge(row);
+  };
+  guardar(); pintar(); panel.hidden = false;
+}
+function cerrarReloj(row) {
+  row.querySelector('.tpick').hidden = true;
+  row.querySelectorAll('.tbtn').forEach(b => b.classList.remove('abierto'));
 }
 function pintarVacio() {
   const list = $('horasList');
